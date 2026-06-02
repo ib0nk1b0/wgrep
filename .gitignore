@@ -62,4 +62,5 @@ build/
 build.bat
 cutils.c
 test.txt
+lorem.txt
 

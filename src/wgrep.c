@@ -28,36 +28,42 @@ void usage(FILE* stream, char* program, char* message)
     fprintf(stream, "       -n    print line number\n");
 }
 
-bool sv_contains(StringView sv, const char* pattern, size_t* out_index)
+// returns num_matches
+size_t sv_contains_brute_force(Arena* arena, StringView sv, const char* pattern, size_t* out_indices)
 {
-    bool contains = false;
+    size_t num_matches = 0;
     size_t pattern_length = strlen(pattern);
+    bool match_found = false;
     if (sv.size < pattern_length)
     {
-        return contains;
+        return num_matches;
     }
+
     size_t i = 0;
     for (; i < sv.size - pattern_length + 1; i++)
     {
-        if (contains)
-        {
-            break;
-        }
-
         for (size_t j = 0; j < pattern_length; j++)
         {
             if (sv.data[i + j] != pattern[j])
             {
-                contains = false;
+                match_found = false;
                 break;
             }
-            contains = true;
+            match_found = true;
+        }
+
+        if (match_found)
+        {
+            match_found = false;
+            if (out_indices)
+            {
+                out_indices[num_matches] = i;
+            }
+            num_matches += 1;
         }
     }
 
-    *out_index = i;
-
-    return contains;
+    return num_matches;
 }
 
 int main(int argc, char** argv)
@@ -96,11 +102,7 @@ int main(int argc, char** argv)
         exit(1);
     }
 
-    printf("Searching for `%s` in file `%s`\n", pattern, file);
-
     StringView result = sv_read_entire_file(arena, file);
-
-    printf("Processing lines, skipping empties...\n");
 
     size_t line_number = 0;
     while (result.size > 0)
@@ -111,19 +113,56 @@ int main(int argc, char** argv)
         if (line.size == 0) continue;
 
         size_t index = 0;
-        bool contains = sv_contains(line, pattern, &index);
-        if (contains)
+        size_t num_matches = sv_contains_brute_force(arena, line, pattern, NULL);
+        size_t* indices = ArenaPushArray(arena, size_t, num_matches);
+        sv_contains_brute_force(arena, line, pattern, indices);
+        if (num_matches)
         {
-            // printf("("SV_FMT")\n", SV_ARG(line));
-            StringView lhs = sv_from_parts(line.data, index - 1);
-            size_t eop = index + strlen(pattern) - 1;
-            StringView rhs = sv_from_parts(line.data + eop, line.size - eop);
             if (print_line_number)
             {
                 printf(ANSI_COLOR_GREEN"%zu:"ANSI_COLOR_RESET, line_number);
             }
-            printf(SV_FMT ANSI_COLOR_RED "%s"ANSI_COLOR_RESET SV_FMT"\n", SV_ARG(lhs), pattern, SV_ARG(rhs));
+
+            // indices[2] = { 0, 21 };
+            // hello, world abcdefg hello, world
+            // ^ next_pattern_start
+            // ^ start_pos
+            // lhs = { data + 0, 0 };
+            // hello, world abcdefg hello, world
+            //                      ^ next_pattern_start
+            //             ^ start_pos
+            // when indices[i] == 0 then start_pos = 0 && next_pattern_start = 0
+            // else if i = 0 then start_pos = 0 && next_pattern_start = indices[i]
+            // else start_pos = indices[i - 1] + pattern_len // maybe + 1
+            // lhs = { data + start_pos, indices[i] - start_pos };
+
+            size_t pattern_len = strlen(pattern) - 1;
+            StringView lhs = sv_from_parts(line.data, indices[0]);
+            printf(SV_FMT, SV_ARG(lhs));
+            printf(ANSI_COLOR_RED "%s"ANSI_COLOR_RESET, pattern);
+            for (size_t i = 1; i < num_matches; i++)
+            {
+                size_t start_pos = indices[i - 1] + pattern_len + 1;
+                lhs = sv_from_parts(line.data + start_pos, indices[i] - start_pos);
+                printf(SV_FMT, SV_ARG(lhs));
+                printf(ANSI_COLOR_RED "%s"ANSI_COLOR_RESET, pattern);
+            }
+            size_t start_pos = indices[num_matches - 1] + pattern_len + 1;
+            StringView rhs = sv_from_parts(line.data + start_pos, line.size - start_pos);
+            printf(SV_FMT"\n", SV_ARG(rhs));
         }
+
+        // if (num_matches)
+        // {
+        //     StringView lhs = sv_from_parts(line.data, index - 1);
+        //     size_t eop = index + strlen(pattern) - 1;
+        //     StringView rhs = sv_from_parts(line.data + eop, line.size - eop);
+        //     if (print_line_number)
+        //     {
+        //         printf(ANSI_COLOR_GREEN"%zu:"ANSI_COLOR_RESET, line_number);
+        //     }
+        //     printf(SV_FMT ANSI_COLOR_RED "%s"ANSI_COLOR_RESET SV_FMT"\n", SV_ARG(lhs), pattern, SV_ARG(rhs));
+        // }
     }
 
     return 0;
