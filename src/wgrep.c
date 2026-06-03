@@ -20,7 +20,8 @@
 #define WGREP_OPTION_n 1
 #define WGREP_OPTION_o 2
 #define WGREP_OPTION_r 4
-#define WGREP_OPTION_H 8
+#define WGREP_OPTION_c 8
+#define WGREP_OPTION_H 16
 
 static char* g_Program;
 
@@ -34,6 +35,7 @@ void usage(FILE* stream, char* program, char* message)
     fprintf(stream, "       -n    print line number\n");
     fprintf(stream, "       -o    print only matching part of line\n");
     fprintf(stream, "       -r    search directory recursively\n");
+    fprintf(stream, "       -c    print only count of how many matches were found\n");
     fprintf(stream, "       -H    print file names\n");
 }
 
@@ -75,20 +77,16 @@ size_t sv_contains_brute_force(Arena* arena, StringView sv, const char* pattern,
     return num_matches;
 }
 
-void match_pattern_in_file(Arena* arena, const char* pattern, const char* file, uint32_t flags)
+size_t match_pattern_in_file(Arena* arena, const char* pattern, const char* file, uint32_t flags)
 {
-    bool print_line_number = (flags & WGREP_OPTION_n);
-    bool print_only_matching = (flags & WGREP_OPTION_o);
-    bool recurse_dirs = (flags & WGREP_OPTION_r);
-    bool print_file_names = (flags & WGREP_OPTION_H);
-
     StringView result = sv_read_entire_file(arena, file);
     if (result.data == NULL)
     {
         printf("Failed to read file %s\n", file);
-        return;
+        return 0;
     }
 
+    size_t total_matches = 0;
     size_t line_number = 0;
     while (result.size > 0)
     {
@@ -103,17 +101,22 @@ void match_pattern_in_file(Arena* arena, const char* pattern, const char* file, 
         sv_contains_brute_force(arena, line, pattern, indices);
         if (num_matches)
         {
-            if (print_file_names)
+            total_matches += num_matches;
+            if (flags & WGREP_OPTION_c)
+            {
+                continue;
+            }
+            if (flags & WGREP_OPTION_H)
             {
                 printf(ANSI_COLOR_GREEN"%s:"ANSI_COLOR_RESET, file);
             }
 
-            if (print_line_number)
+            if (flags & WGREP_OPTION_n)
             {
                 printf(ANSI_COLOR_CYAN"%zu:"ANSI_COLOR_RESET, line_number);
             }
 
-            if (print_only_matching)
+            if (flags & WGREP_OPTION_o)
             {
                 printf(ANSI_COLOR_RED"%s"ANSI_COLOR_RESET"\n", pattern);
             }
@@ -136,9 +139,11 @@ void match_pattern_in_file(Arena* arena, const char* pattern, const char* file, 
             }
         }
     }
+
+    return total_matches;
 }
 
-void recurse_directory(Arena* arena, const char* dir, const char* pattern, uint32_t flags)
+size_t recurse_directory(Arena* arena, const char* dir, const char* pattern, uint32_t flags)
 {
     WIN32_FIND_DATA ffd = {0};
     LARGE_INTEGER filesize;
@@ -152,6 +157,7 @@ void recurse_directory(Arena* arena, const char* dir, const char* pattern, uint3
 
     hFind = FindFirstFile(szDir, &ffd);
 
+    size_t total_matches = 0;
     do
     {
         char full_path[MAX_PATH];
@@ -170,10 +176,12 @@ void recurse_directory(Arena* arena, const char* dir, const char* pattern, uint3
             // filesize.LowPart = ffd.nFileSizeLow;
             // filesize.HighPart = ffd.nFileSizeHigh;
             // printf("  %s   %lld bytes\n", ffd.cFileName, filesize.QuadPart);
-            match_pattern_in_file(arena, pattern, full_path, flags);
+            total_matches += match_pattern_in_file(arena, pattern, full_path, flags);
         }
     }
     while (FindNextFile(hFind, &ffd) != 0);
+
+    return total_matches;
 }
 
 int main(int argc, char** argv)
@@ -183,10 +191,6 @@ int main(int argc, char** argv)
 
     char* pattern = NULL;
     char* file = NULL;
-    bool print_line_number = false;
-    bool print_only_matching = false;
-    bool print_file_names = false;
-    bool recurse_dirs = false;
     uint32_t flags = 0;
     while (argc > 0)
     {
@@ -194,22 +198,22 @@ int main(int argc, char** argv)
         if (strcmp(flag, "-n") == 0)
         {
             flags |= WGREP_OPTION_n;
-            print_line_number = true;
         }
         else if (strcmp(flag, "-o") == 0)
         {
             flags |= WGREP_OPTION_o;
-            print_only_matching = true;
         }
         else if (strcmp(flag, "-r") == 0)
         {
             flags |= WGREP_OPTION_r;
-            recurse_dirs = true;
+        }
+        else if (strcmp(flag, "-c") == 0)
+        {
+            flags |= WGREP_OPTION_c;
         }
         else if (strcmp(flag, "-H") == 0)
         {
             flags |= WGREP_OPTION_H;
-            print_file_names = true;
         }
         else if (flag[0] == '-')
         {
@@ -226,6 +230,8 @@ int main(int argc, char** argv)
         }
     }
 
+    bool recurse_dirs = (flags & WGREP_OPTION_r);
+    bool print_count  = (flags & WGREP_OPTION_c);
     if (pattern == NULL || (recurse_dirs == false && file == NULL))
     {
         usage(stderr, g_Program, "Not enough arguments provided!");
@@ -234,18 +240,27 @@ int main(int argc, char** argv)
 
     if (!recurse_dirs)
     {
-        match_pattern_in_file(arena, pattern, file, flags);
+        size_t total_matches = match_pattern_in_file(arena, pattern, file, flags);
+        if (print_count)
+        {
+            printf("%zu\n", total_matches);
+        }
     }
     else if (recurse_dirs && file != NULL)
     {
-        // Check if file is Dir
+        size_t total_matches = 0;
         if (PathIsDirectoryA(file))
         {
-            recurse_directory(arena, file, pattern, flags);
+            total_matches = recurse_directory(arena, file, pattern, flags);
         }
         else
         {
-            match_pattern_in_file(arena, pattern, file, flags);
+            total_matches = match_pattern_in_file(arena, pattern, file, flags);
+        }
+
+        if (print_count)
+        {
+            printf("%zu\n", total_matches);
         }
     }
     else
