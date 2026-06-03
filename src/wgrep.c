@@ -168,7 +168,7 @@ size_t recurse_directory(Arena* arena, const char* dir, const char* pattern, uin
             if (strcmp(ffd.cFileName, ".") != 0 && strcmp(ffd.cFileName, "..") != 0)
             if (ffd.cFileName[0] != '.')
             {
-                recurse_directory(arena, full_path, pattern, flags);
+                total_matches += recurse_directory(arena, full_path, pattern, flags);
             }
         }
         else
@@ -265,9 +265,15 @@ int main(int argc, char** argv)
     }
     else
     {
+        size_t total_matches = 0;
         if (file == NULL)
         {
-            recurse_directory(arena, ".", pattern, flags);
+            total_matches = recurse_directory(arena, ".", pattern, flags);
+        }
+
+        if (print_count)
+        {
+            printf("%zu\n", total_matches);
         }
     }
 
