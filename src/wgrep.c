@@ -25,12 +25,8 @@
 
 static char* g_Program;
 
-void usage(FILE* stream, char* program, char* message)
+void usage(FILE* stream, const char* program)
 {
-    if (message)
-    {
-        fprintf(stream, "%s\n", message);
-    }
     fprintf(stream, "Usage: %s [OPTIONS] Patterns [FILE]\n", program);
     fprintf(stream, "       -n    print line number\n");
     fprintf(stream, "       -o    print only matching part of line\n");
@@ -229,7 +225,8 @@ int main(int argc, char** argv)
             size_t flag_len = strlen(flag);
             if (flag_len <= 2)
             {
-                usage(stderr, g_Program, "Unkown flag provided!");
+                fprintf(stderr, "ERROR: Unkown flag provided %s\n", flag);
+                usage(stderr, g_Program);
                 exit(1);
             }
             for (size_t i = 1; i < flag_len; i++)
@@ -256,7 +253,8 @@ int main(int argc, char** argv)
                 }
                 else
                 {
-                    usage(stderr, g_Program, "Unkown flag provided!");
+                    fprintf(stderr, "ERROR: Unkown flag provided -%c\n", flag[i]);
+                    usage(stderr, g_Program);
                     exit(1);
                 }
             }
@@ -275,7 +273,8 @@ int main(int argc, char** argv)
     bool print_count  = (flags & WGREP_OPTION_c);
     if (pattern == NULL || (recurse_dirs == false && file == NULL))
     {
-        usage(stderr, g_Program, "Not enough arguments provided!");
+        fprintf(stderr, "ERROR: Not enough arguments provided!\n");
+        usage(stderr, g_Program);
         exit(1);
     }
 
