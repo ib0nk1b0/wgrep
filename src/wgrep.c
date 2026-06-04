@@ -254,6 +254,11 @@ int main(int argc, char** argv)
                 {
                     flags |= WGREP_OPTION_H;
                 }
+                else
+                {
+                    usage(stderr, g_Program, "Unkown flag provided!");
+                    exit(1);
+                }
             }
         }
         else if (pattern == NULL)
