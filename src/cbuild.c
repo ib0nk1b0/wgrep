@@ -12,7 +12,7 @@ int main(int argc, char** argv)
     printf("%s\n", buildCommand);
     system(buildCommand);
 
-    const char* runCommand = "build\\wgrep \"hello, world\" test\\test.txt";
+    const char* runCommand = "build\\wgrep -rnH \"hello, world\" test\\test.txt";
     printf("%s\n", runCommand);
     printf("\n-----------------------------------------\n\n");
     system(runCommand);

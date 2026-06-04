@@ -189,8 +189,8 @@ size_t recurse_directory(Arena* arena, const char* dir, const char* pattern, uin
 
 int main(int argc, char** argv)
 {
-    LARGE_INTEGER frequency;        // Ticks per second
-    LARGE_INTEGER t1, t2;           // Ticks
+    LARGE_INTEGER frequency;
+    LARGE_INTEGER t1, t2;
 
     QueryPerformanceFrequency(&frequency);
     QueryPerformanceCounter(&t1);
@@ -226,8 +226,35 @@ int main(int argc, char** argv)
         }
         else if (flag[0] == '-')
         {
-            usage(stderr, g_Program, "Unkown flag provided!");
-            exit(1);
+            size_t flag_len = strlen(flag);
+            if (flag_len <= 2)
+            {
+                usage(stderr, g_Program, "Unkown flag provided!");
+                exit(1);
+            }
+            for (size_t i = 1; i < flag_len; i++)
+            {
+                if (flag[i] == 'n')
+                {
+                    flags |= WGREP_OPTION_n;
+                }
+                else if (flag[i] == 'o')
+                {
+                    flags |= WGREP_OPTION_o;
+                }
+                else if (flag[i] == 'r')
+                {
+                    flags |= WGREP_OPTION_r;
+                }
+                else if (flag[i] == 'c')
+                {
+                    flags |= WGREP_OPTION_c;
+                }
+                else if (flag[i] == 'H')
+                {
+                    flags |= WGREP_OPTION_H;
+                }
+            }
         }
         else if (pattern == NULL)
         {
