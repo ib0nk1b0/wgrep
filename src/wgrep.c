@@ -35,20 +35,28 @@ void usage(FILE* stream, const char* program)
     fprintf(stream, "       -H    print file names\n");
 }
 
-// returns num_matches
-size_t sv_contains_brute_force(Arena* arena, StringView sv, const char* pattern, size_t* out_indices)
+typedef struct
 {
-    size_t num_matches = 0;
+    size_t num_matches;
+    size_t* indices;
+} MatchResult;
+
+MatchResult sv_contains_brute_force(Arena* arena, StringView sv, const char* pattern)
+{
+    MatchResult result = {0};
     size_t pattern_length = strlen(pattern);
     bool match_found = false;
     if (sv.size < pattern_length)
     {
-        return num_matches;
+        return result;
     }
+
+    result.indices = ArenaPushStruct(arena, size_t);
 
     size_t i = 0;
     for (; i < sv.size - pattern_length + 1; i++)
     {
+        match_found = true;
         for (size_t j = 0; j < pattern_length; j++)
         {
             if (sv.data[i + j] != pattern[j])
@@ -56,21 +64,16 @@ size_t sv_contains_brute_force(Arena* arena, StringView sv, const char* pattern,
                 match_found = false;
                 break;
             }
-            match_found = true;
         }
 
         if (match_found)
         {
-            match_found = false;
-            if (out_indices)
-            {
-                out_indices[num_matches] = i;
-            }
-            num_matches += 1;
+            result.indices[result.num_matches++] = i;
+            ArenaPushStruct(arena, size_t);
         }
     }
 
-    return num_matches;
+    return result;
 }
 
 size_t match_pattern_in_file(Arena* arena, const char* pattern, const char* file, uint32_t flags)
@@ -93,12 +96,10 @@ size_t match_pattern_in_file(Arena* arena, const char* pattern, const char* file
         if (line.size == 0) continue;
 
         size_t index = 0;
-        size_t num_matches = sv_contains_brute_force(arena, line, pattern, NULL);
-        size_t* indices = ArenaPushArray(arena, size_t, num_matches);
-        sv_contains_brute_force(arena, line, pattern, indices);
-        if (num_matches)
+        MatchResult result = sv_contains_brute_force(arena, line, pattern);
+        if (result.num_matches)
         {
-            total_matches += num_matches;
+            total_matches += result.num_matches;
             if (flags & WGREP_OPTION_c)
             {
                 continue;
@@ -120,17 +121,17 @@ size_t match_pattern_in_file(Arena* arena, const char* pattern, const char* file
             else
             {
                 size_t pattern_len = strlen(pattern) - 1;
-                StringView lhs = sv_from_parts(line.data, indices[0]);
+                StringView lhs = sv_from_parts(line.data, result.indices[0]);
                 printf(SV_FMT, SV_ARG(lhs));
                 printf(ANSI_COLOR_RED "%s"ANSI_COLOR_RESET, pattern);
-                for (size_t i = 1; i < num_matches; i++)
+                for (size_t i = 1; i < result.num_matches; i++)
                 {
-                    size_t start_pos = indices[i - 1] + pattern_len + 1;
-                    lhs = sv_from_parts(line.data + start_pos, indices[i] - start_pos);
+                    size_t start_pos = result.indices[i - 1] + pattern_len + 1;
+                    lhs = sv_from_parts(line.data + start_pos, result.indices[i] - start_pos);
                     printf(SV_FMT, SV_ARG(lhs));
                     printf(ANSI_COLOR_RED "%s"ANSI_COLOR_RESET, pattern);
                 }
-                size_t start_pos = indices[num_matches - 1] + pattern_len + 1;
+                size_t start_pos = result.indices[result.num_matches - 1] + pattern_len + 1;
                 StringView rhs = sv_from_parts(line.data + start_pos, line.size - start_pos);
                 printf(SV_FMT"\n", SV_ARG(rhs));
             }
