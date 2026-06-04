@@ -205,7 +205,7 @@ void* cutils_arena_push(Arena* arena, size_t size)
 
 void* cutils_arena_pop(Arena* arena, size_t size)
 {
-    assert(arena->pos > size);
+    assert(arena->pos >= size);
     arena->pos -= size; 
     uint8_t* out = (uint8_t*)arena + sizeof(Arena) + arena->pos;
     memset(out, 0, size);

@@ -79,6 +79,7 @@ size_t sv_contains_brute_force(Arena* arena, StringView sv, const char* pattern,
 
 size_t match_pattern_in_file(Arena* arena, const char* pattern, const char* file, uint32_t flags)
 {
+    size_t arena_start = arena->pos;
     StringView result = sv_read_entire_file(arena, file);
     if (result.data == NULL)
     {
@@ -140,6 +141,8 @@ size_t match_pattern_in_file(Arena* arena, const char* pattern, const char* file
         }
     }
 
+    arena_pop(arena, arena->pos - arena_start);
+
     return total_matches;
 }
 
@@ -186,7 +189,13 @@ size_t recurse_directory(Arena* arena, const char* dir, const char* pattern, uin
 
 int main(int argc, char** argv)
 {
-    Arena* arena = arena_create(Megabytes(64));
+    LARGE_INTEGER frequency;        // Ticks per second
+    LARGE_INTEGER t1, t2;           // Ticks
+
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&t1);
+
+    Arena* arena = arena_create((size_t)Gigabytes(4));
     g_Program = next_cmd_line_arg(&argc, &argv);
 
     char* pattern = NULL;
@@ -276,6 +285,10 @@ int main(int argc, char** argv)
             printf("%zu\n", total_matches);
         }
     }
+
+    QueryPerformanceCounter(&t2);
+    double elapsed_time = (t2.QuadPart - t1.QuadPart) * 1000.0 / frequency.QuadPart;
+    printf("Total elapsed time: %f ms.\n", elapsed_time);
 
     return 0;
 }

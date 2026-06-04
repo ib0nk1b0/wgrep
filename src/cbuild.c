@@ -7,7 +7,7 @@ int main(int argc, char** argv)
 {
     CBUILD_REBUILD_SELF(argc, argv);
 
-    const char* buildCommand = "cl /nologo /Zi /Fo.\\build\\ /Fe:build\\wgrep.exe src\\wgrep.c /link shlwapi.lib";
+    const char* buildCommand = "cl /nologo /O2 /Zi /Fo.\\build\\ /Fe:build\\wgrep.exe src\\wgrep.c /link shlwapi.lib";
 
     printf("%s\n", buildCommand);
     system(buildCommand);
