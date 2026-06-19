@@ -96,10 +96,10 @@ size_t match_pattern_in_file(Arena* arena, const char* pattern, const char* file
         if (line.size == 0) continue;
 
         size_t index = 0;
-        MatchResult result = sv_contains_brute_force(arena, line, pattern);
-        if (result.num_matches)
+        MatchResult match_result = sv_contains_brute_force(arena, line, pattern);
+        if (match_result.num_matches)
         {
-            total_matches += result.num_matches;
+            total_matches += match_result.num_matches;
             if (flags & WGREP_OPTION_c)
             {
                 continue;
@@ -121,17 +121,17 @@ size_t match_pattern_in_file(Arena* arena, const char* pattern, const char* file
             else
             {
                 size_t pattern_len = strlen(pattern) - 1;
-                StringView lhs = sv_from_parts(line.data, result.indices[0]);
+                StringView lhs = sv_from_parts(line.data, match_result.indices[0]);
                 printf(SV_FMT, SV_ARG(lhs));
                 printf(ANSI_COLOR_RED "%s"ANSI_COLOR_RESET, pattern);
-                for (size_t i = 1; i < result.num_matches; i++)
+                for (size_t i = 1; i < match_result.num_matches; i++)
                 {
-                    size_t start_pos = result.indices[i - 1] + pattern_len + 1;
-                    lhs = sv_from_parts(line.data + start_pos, result.indices[i] - start_pos);
+                    size_t start_pos = match_result.indices[i - 1] + pattern_len + 1;
+                    lhs = sv_from_parts(line.data + start_pos, match_result.indices[i] - start_pos);
                     printf(SV_FMT, SV_ARG(lhs));
                     printf(ANSI_COLOR_RED "%s"ANSI_COLOR_RESET, pattern);
                 }
-                size_t start_pos = result.indices[result.num_matches - 1] + pattern_len + 1;
+                size_t start_pos = match_result.indices[match_result.num_matches - 1] + pattern_len + 1;
                 StringView rhs = sv_from_parts(line.data + start_pos, line.size - start_pos);
                 printf(SV_FMT"\n", SV_ARG(rhs));
             }
