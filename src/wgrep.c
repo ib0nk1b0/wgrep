@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <Windows.h>
 #include <Shlwapi.h>
+#include <io.h>
 
 #define CUTILS_IMPLEMENTATION
 #define CUTILS_NO_PREFIX
@@ -76,35 +77,27 @@ MatchResult sv_contains_brute_force(Arena* arena, StringView sv, const char* pat
     return result;
 }
 
-size_t match_pattern_in_file(Arena* arena, const char* pattern, const char* file, uint32_t flags)
+size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, const char* file, uint32_t flags)
 {
-    size_t arena_start = arena->pos;
-    StringView result = sv_read_entire_file(arena, file);
-    if (result.data == NULL)
-    {
-        printf("Failed to read file %s\n", file);
-        return 0;
-    }
-
     size_t total_matches = 0;
     size_t line_number = 0;
-    while (result.size > 0)
+    while (sv.size > 0)
     {
         line_number += 1;
-        StringView line = sv_chop_line(&result);
+        StringView line = sv_chop_line(&sv);
 
         if (line.size == 0) continue;
 
         size_t index = 0;
-        MatchResult match_result = sv_contains_brute_force(arena, line, pattern);
-        if (match_result.num_matches)
+        MatchResult match_sv = sv_contains_brute_force(arena, line, pattern);
+        if (match_sv.num_matches)
         {
-            total_matches += match_result.num_matches;
+            total_matches += match_sv.num_matches;
             if (flags & WGREP_OPTION_c)
             {
                 continue;
             }
-            if (flags & WGREP_OPTION_H)
+            if (flags & WGREP_OPTION_H && file != NULL)
             {
                 printf(ANSI_COLOR_GREEN"%s:"ANSI_COLOR_RESET, file);
             }
@@ -121,24 +114,22 @@ size_t match_pattern_in_file(Arena* arena, const char* pattern, const char* file
             else
             {
                 size_t pattern_len = strlen(pattern) - 1;
-                StringView lhs = sv_from_parts(line.data, match_result.indices[0]);
+                StringView lhs = sv_from_parts(line.data, match_sv.indices[0]);
                 printf(SV_FMT, SV_ARG(lhs));
                 printf(ANSI_COLOR_RED "%s"ANSI_COLOR_RESET, pattern);
-                for (size_t i = 1; i < match_result.num_matches; i++)
+                for (size_t i = 1; i < match_sv.num_matches; i++)
                 {
-                    size_t start_pos = match_result.indices[i - 1] + pattern_len + 1;
-                    lhs = sv_from_parts(line.data + start_pos, match_result.indices[i] - start_pos);
+                    size_t start_pos = match_sv.indices[i - 1] + pattern_len + 1;
+                    lhs = sv_from_parts(line.data + start_pos, match_sv.indices[i] - start_pos);
                     printf(SV_FMT, SV_ARG(lhs));
                     printf(ANSI_COLOR_RED "%s"ANSI_COLOR_RESET, pattern);
                 }
-                size_t start_pos = match_result.indices[match_result.num_matches - 1] + pattern_len + 1;
+                size_t start_pos = match_sv.indices[match_sv.num_matches - 1] + pattern_len + 1;
                 StringView rhs = sv_from_parts(line.data + start_pos, line.size - start_pos);
                 printf(SV_FMT"\n", SV_ARG(rhs));
             }
         }
     }
-
-    arena_pop(arena, arena->pos - arena_start);
 
     return total_matches;
 }
@@ -164,7 +155,6 @@ size_t recurse_directory(Arena* arena, const char* dir, const char* pattern, uin
         snprintf(full_path, MAX_PATH, "%s\\%s", dir, ffd.cFileName);
         if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
         {
-            // printf("  %s   <DIR>\n", ffd.cFileName);
             if (strcmp(ffd.cFileName, ".") != 0 && strcmp(ffd.cFileName, "..") != 0)
             if (ffd.cFileName[0] != '.')
             {
@@ -173,10 +163,17 @@ size_t recurse_directory(Arena* arena, const char* dir, const char* pattern, uin
         }
         else
         {
-            // filesize.LowPart = ffd.nFileSizeLow;
-            // filesize.HighPart = ffd.nFileSizeHigh;
-            // printf("  %s   %lld bytes\n", ffd.cFileName, filesize.QuadPart);
-            total_matches += match_pattern_in_file(arena, pattern, full_path, flags);
+            size_t arena_start = arena->pos;
+            StringView result = sv_read_entire_file(arena, full_path);
+            if (result.data == NULL)
+            {
+                printf("Failed to read file %s\n", full_path);
+                return 0;
+            }
+
+            total_matches += match_pattern_in_sv(arena, pattern, result, full_path, flags);
+
+            arena_pop(arena, arena->pos - arena_start);
         }
     }
     while (FindNextFile(hFind, &ffd) != 0);
@@ -272,32 +269,20 @@ int main(int argc, char** argv)
 
     bool recurse_dirs = (flags & WGREP_OPTION_r);
     bool print_count  = (flags & WGREP_OPTION_c);
-    if (pattern == NULL || (recurse_dirs == false && file == NULL))
-    {
-        fprintf(stderr, "ERROR: Not enough arguments provided!\n");
-        usage(stderr, g_Program);
-        exit(1);
-    }
 
-    if (!recurse_dirs)
+    if (pattern != NULL && !_isatty(_fileno(stdin)))
     {
-        size_t total_matches = match_pattern_in_file(arena, pattern, file, flags);
-        if (print_count)
-        {
-            printf("%zu\n", total_matches);
-        }
-    }
-    else if (recurse_dirs && file != NULL)
-    {
+        size_t buf_size = Megabytes(64);
         size_t total_matches = 0;
-        if (PathIsDirectoryA(file))
+        char* buf = NULL;
+        char* result = NULL;
+        do
         {
-            total_matches = recurse_directory(arena, file, pattern, flags);
-        }
-        else
-        {
-            total_matches = match_pattern_in_file(arena, pattern, file, flags);
-        }
+            buf = ArenaPushArray(arena, char, buf_size);
+            result = fgets(buf, buf_size, stdin);
+            total_matches += match_pattern_in_sv(arena, pattern, sv_from_cstr(buf), NULL, flags);
+            ArenaPopArray(arena, char, buf_size);
+        } while (result != NULL);
 
         if (print_count)
         {
@@ -306,15 +291,71 @@ int main(int argc, char** argv)
     }
     else
     {
-        size_t total_matches = 0;
-        if (file == NULL)
+        if (pattern == NULL || (recurse_dirs == false && file == NULL))
         {
-            total_matches = recurse_directory(arena, ".", pattern, flags);
+            fprintf(stderr, "ERROR: Not enough arguments provided!\n");
+            usage(stderr, g_Program);
+            exit(1);
         }
 
-        if (print_count)
+        if (!recurse_dirs)
         {
-            printf("%zu\n", total_matches);
+            size_t arena_start = arena->pos;
+            StringView result = sv_read_entire_file(arena, file);
+            if (result.data == NULL)
+            {
+                printf("Failed to read file %s\n", file);
+                return 0;
+            }
+
+            size_t total_matches = match_pattern_in_sv(arena, pattern, result, file, flags);
+
+            if (print_count)
+            {
+                printf("%zu\n", total_matches);
+            }
+
+            arena_pop(arena, arena->pos - arena_start);
+        }
+        else if (recurse_dirs && file != NULL)
+        {
+            size_t total_matches = 0;
+            if (PathIsDirectoryA(file))
+            {
+                total_matches = recurse_directory(arena, file, pattern, flags);
+            }
+            else
+            {
+                size_t arena_start = arena->pos;
+                StringView result = sv_read_entire_file(arena, file);
+                if (result.data == NULL)
+                {
+                    printf("Failed to read file %s\n", file);
+                    return 0;
+                }
+
+                total_matches = match_pattern_in_sv(arena, pattern, result, file, flags);
+
+                arena_pop(arena, arena->pos - arena_start);
+            }
+
+            if (print_count)
+            {
+                printf("%zu\n", total_matches);
+            }
+        }
+        else
+        {
+            size_t total_matches = 0;
+            if (file == NULL)
+            {
+                total_matches = recurse_directory(arena, ".", pattern, flags);
+            }
+
+            if (print_count)
+            {
+                printf("%zu\n", total_matches);
+            }
         }
     }
 
