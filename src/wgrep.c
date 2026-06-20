@@ -143,8 +143,15 @@ size_t recurse_directory(Arena* arena, const char* dir, const char* pattern, uin
     HANDLE hFind = INVALID_HANDLE_VALUE;
     DWORD dwError=0;
 
-    snprintf(szDir, MAX_PATH, "%s\\*", dir);
-    // printf("recursing dir: %s\n", szDir);
+    size_t dir_len = strlen(dir);
+    if (dir[dir_len-1] == '\\' || dir[dir_len-1] == '/')
+    {
+        snprintf(szDir, MAX_PATH, "%s*", dir);
+    }
+    else
+    {
+        snprintf(szDir, MAX_PATH, "%s\\*", dir);
+    }
 
     hFind = FindFirstFile(szDir, &ffd);
 
@@ -152,7 +159,15 @@ size_t recurse_directory(Arena* arena, const char* dir, const char* pattern, uin
     do
     {
         char full_path[MAX_PATH];
-        snprintf(full_path, MAX_PATH, "%s\\%s", dir, ffd.cFileName);
+
+        if (dir[dir_len-1] == '\\' || dir[dir_len-1] == '/')
+        {
+            snprintf(full_path, MAX_PATH, "%s%s", dir, ffd.cFileName);
+        }
+        else
+        {
+            snprintf(full_path, MAX_PATH, "%s\\%s", dir, ffd.cFileName);
+        }
         if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
         {
             if (strcmp(ffd.cFileName, ".") != 0 && strcmp(ffd.cFileName, "..") != 0)
