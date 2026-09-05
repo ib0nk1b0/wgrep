@@ -1,6 +1,10 @@
 #ifndef CBUILD_H
 #define CBUILD_H
 
+// TODO: cross platform
+
+#include <stdio.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
 #include <Windows.h>
@@ -9,12 +13,30 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+typedef enum
+{
+    CBUILD_COMPILER_CL,
+    CBUILD_COMPILER_CLANG,
+    CBUILD_COMPILER_GCC,
+} CBuild_Compilers;
+
+typedef struct
+{
+    char* cmd;
+    size_t cmd_capacity;
+    size_t cmd_length;
+} CBuild_Cmd;
+
 void cbuild_rebuild_self(const char* cFile, char** argv);
 #define CBUILD_REBUILD_SELF(argc, argv) cbuild_rebuild_self(__FILE__, argv)
 
+void cbuild_cmd_begin(CBuild_Cmd* cmd, CBuild_Compilers compiler);
+void cbuild_cmd_append(CBuild_Cmd* cmd, char* str);
+void cbuild_cmd_end(CBuild_Cmd* cmd);
+
 #endif // CBUILD_H
 
-#define CBUILD_IMPLEMENTATION // NOTE: for syntax highlighting
+//#define CBUILD_IMPLEMENTATION // NOTE: for syntax highlighting
 #ifdef CBUILD_IMPLEMENTATION
 
 void cbuild_rebuild_self(const char* cFile, char** argv)
@@ -77,17 +99,63 @@ void cbuild_rebuild_self(const char* cFile, char** argv)
                     exit(1);
                 }
 
-                // const char* buildCommand = "gcc -o build\\cbuild cbuild.c -lshlwapi";
-                const char* buildCommand = "cl /nologo /Fo.\\build\\ /Fe:build\\cbuild.exe src\\cbuild.c /link shlwapi.lib";
+                const char* buildCommand = "cl /nologo /Zi /Od cbuild.c /Fo:build\\cbuild.obj /Fe:build\\cbuild.exe /link /DEBUG shlwapi.lib";
                 printf("cbuild `%s`\n", buildCommand);
                 system(buildCommand);
 
+                // NOTE: after rebuilding must call ourselves to run again to build the traget program
                 printf("%s\n", argv[0]);
                 system(argv[0]);
                 exit(0);
             }
         }
     }
+}
+
+void cbuild_cmd_begin(CBuild_Cmd* cmd, CBuild_Compilers compiler)
+{
+    cmd->cmd_capacity = 1024 * 1024;
+    cmd->cmd = (char*)malloc(cmd->cmd_capacity);
+    switch (compiler)
+    {
+        case CBUILD_COMPILER_CL:
+        {
+            const char* cl = "cl";
+            strcpy(cmd->cmd, cl);
+            cmd->cmd_length = strlen(cl);
+        } break;
+        case CBUILD_COMPILER_CLANG:
+        {
+            const char* clang = "clang";
+            strcpy(cmd->cmd, clang);
+            cmd->cmd_length = strlen(clang);
+        } break;
+        case CBUILD_COMPILER_GCC:
+        {
+            const char* gcc = "gcc";
+            strcpy(cmd->cmd, gcc);
+            cmd->cmd_length = strlen(gcc);
+        } break;
+    }
+}
+
+void cbuild_cmd_append(CBuild_Cmd* cmd, char* str)
+{
+    if (cmd->cmd_length + strlen(str) < cmd->cmd_capacity)
+    {
+        cmd->cmd[cmd->cmd_length++] = ' ';
+        strcpy(cmd->cmd + cmd->cmd_length, str);
+        cmd->cmd_length += strlen(str);
+    }
+}
+
+void cbuild_cmd_end(CBuild_Cmd* cmd)
+{
+    if (cmd == NULL) return;
+    if (cmd->cmd == NULL) return;
+
+    printf("%s\n", cmd->cmd);
+    system(cmd->cmd);
 }
 
 #endif // CBUILD_IMPLEMENTATION

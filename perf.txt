@@ -1,0 +1,17 @@
+
+W:\OpenEngine\OpenEngine\
+wgrep -rnH "OE_CORE_ASSERT" src
+~23 ms
+
+# printing line by line
+wgrep --perf -rnH "OE_CORE_ASSERT" C:\Dev\OpenEngine\OpenEngine\src
+wgrep --perf --kmp -rnH "OE_CORE_ASSERT" C:\Dev\OpenEngine\OpenEngine\src
+wgrep --perf --bm -rnH "OE_CORE_ASSERT" C:\Dev\OpenEngine\OpenEngine\src
+~30ms
+
+# batched printing
+wgrep --perf -rnH "OE_CORE_ASSERT" C:\Dev\OpenEngine\OpenEngine\src
+wgrep --perf --kmp -rnH "OE_CORE_ASSERT" C:\Dev\OpenEngine\OpenEngine\src
+wgrep --perf --bm -rnH "OE_CORE_ASSERT" C:\Dev\OpenEngine\OpenEngine\src
+~10ms
+~16ms in old CMD
