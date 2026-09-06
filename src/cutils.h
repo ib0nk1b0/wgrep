@@ -302,21 +302,59 @@ StringView cutils_sv_chop_by_delim(StringView* sv, char delim)
 
 StringView cutils_sv_chop_line(StringView* sv)
 {
-    size_t i = 0;
-    while (i < sv->size && sv->data[i] != '\r' && sv->data[i] != '\n')
+    __m128i new_line = _mm_set1_epi8('\n');
+
+    size_t size = sv->size;
+    const char* data = sv->data;
+
+    while (size >= 16)
     {
-        i += 1;
+        __m128i batch = _mm_loadu_si128((__m128i*)data);
+        __m128i new_line_test = _mm_cmpeq_epi8(batch, new_line);
+
+        int check = _mm_movemask_epi8(new_line_test);
+
+        if (check)
+        {
+            int advance = _tzcnt_u32(check);
+            size -= advance;
+            data += advance;
+            break;
+        }
+
+        size -= 16;
+        data += 16;
     }
 
-    StringView line = {
-        .data = sv->data,
-        .size = i,
+    StringView line = {0};
+    StringView result = {
+        .data = data,
+        .size = size,
     };
-    // NOTE: this is to get around windows carriage returns
-    //       doing this after taking the line StringView to drop the carriage return
-    if (sv->data[i] == '\r' && sv->data[i + 1] == '\n')
+
+    size_t i = 0;
+    if (result.data[0] == '\n')
     {
-        i += 1;
+        line.data = sv->data;
+        line.size = sv->size - result.size;
+        i = line.size;
+    }
+    else
+    {
+        while (i < result.size && result.data[i] != '\n')
+        {
+            i += 1;
+        }
+        
+        i += sv->size - result.size;
+
+        line.data = sv->data;
+        line.size = i;
+    }
+
+    if (line.data[line.size - 1] == '\r')
+    {
+        line = cutils_sv_trim_right(line);
     }
 
     if (i < sv->size)

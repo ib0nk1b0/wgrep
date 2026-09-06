@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <Shlwapi.h>
+#include <intrin.h>
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -57,8 +58,10 @@ static int*                   g_shift;
 static int*                   g_bpos;
 static int                    g_badchar[NUM_CHARS];
 static size_t*                g_lps;
+// TODO: Cleanup
+static size_t buffer_idx = 0;
 
-#define OUT_BUFFER_SIZE Kilobytes(64)
+#define OUT_BUFFER_SIZE Megabytes(64)
 
 void usage(FILE* stream, const char* program)
 {
@@ -70,6 +73,12 @@ void usage(FILE* stream, const char* program)
     fprintf(stream, "       -H     print file names\n");
     fprintf(stream, "       --perf print performance stats\n");
     fprintf(stream, "       --kmp  use kmp searching algorithm. not implemented\n");
+}
+
+// TODO: figure out faster file reading
+void wgrep_read_file(const char* filepath)
+{
+
 }
 
 typedef struct
@@ -307,7 +316,6 @@ size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, con
 #if 1
     size_t total_matches = 0;
     size_t line_number = 0;
-    size_t buffer_idx = 0;
     while (sv.size > 0)
     {
         LARGE_INTEGER line_chop_start, line_chop_end;
@@ -440,25 +448,44 @@ size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, con
         }
     }
 
-    if (buffer_idx > 0)
-    {
-        printf(g_out_buffer);
-    }
-
-    // ArenaPopArray(arena, char, buffer_size);
-
 #else
     size_t total_matches = 0;
     size_t line_number = 0;
     while (sv.size > 0)
     {
+        LARGE_INTEGER line_chop_start, line_chop_end;
+        QueryPerformanceCounter(&line_chop_start);
+        
         line_number += 1;
         StringView line = sv_chop_line(&sv);
 
+        QueryPerformanceCounter(&line_chop_end);
+        g_Stats.line_chop_time += (line_chop_end.QuadPart - line_chop_start.QuadPart) * 1000.0 / g_Stats.frequency.QuadPart;
+
         if (line.size == 0) continue;
+
+        LARGE_INTEGER search_start, search_end;
+        QueryPerformanceCounter(&search_start);
 
         size_t index = 0;
         MatchResult match_sv;
+
+        if (flags & WGREP_OPTION_kmp)
+        {
+            match_sv = sv_contains_kmp(arena, line, pattern);
+        }
+        else if (flags & WGREP_OPTION_bm)
+        {
+            match_sv = sv_contains_bm(arena, line, pattern);
+        }
+        else
+        {
+            match_sv = sv_contains_brute_force(arena, line, pattern);
+        }
+
+        QueryPerformanceCounter(&search_end);
+        g_Stats.search_time += (search_end.QuadPart - search_start.QuadPart) * 1000.0 / g_Stats.frequency.QuadPart;
+
         if (flags & WGREP_OPTION_kmp)
         {
             match_sv = sv_contains_kmp(arena, line, pattern);
@@ -495,18 +522,33 @@ size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, con
             }
             else
             {
-                size_t pattern_len = strlen(pattern) - 1;
+                size_t pattern_len = strlen(pattern);
                 StringView lhs = sv_from_parts(line.data, match_sv.indices[0]);
                 printf(SV_FMT, SV_ARG(lhs));
                 printf(ANSI_COLOR_RED "%s"ANSI_COLOR_RESET, pattern);
                 for (size_t i = 1; i < match_sv.num_matches; i++)
                 {
-                    size_t start_pos = match_sv.indices[i - 1] + pattern_len + 1;
-                    lhs = sv_from_parts(line.data + start_pos, match_sv.indices[i] - start_pos);
-                    printf(SV_FMT, SV_ARG(lhs));
-                    printf(ANSI_COLOR_RED "%s"ANSI_COLOR_RESET, pattern);
+                    if (match_sv.indices[i] - match_sv.indices[i - 1] < pattern_len)
+                    {
+                        // Need to print extra partial pattern
+                        size_t partial_pattern_len = match_sv.indices[i] - match_sv.indices[i - 1];
+                        StringView partial_pattern = sv_from_parts(pattern + pattern_len - partial_pattern_len, partial_pattern_len);
+                        printf("%s"SV_FMT"%s", ANSI_COLOR_RED, SV_ARG(partial_pattern), ANSI_COLOR_RESET);
+                    }
+                    else
+                    {
+                        size_t start_pos = match_sv.indices[i - 1] + pattern_len;
+
+                        lhs = sv_from_parts(line.data + start_pos, match_sv.indices[i] - start_pos);
+
+                        printf(SV_FMT, SV_ARG(lhs));
+                        printf(ANSI_COLOR_RED "%s"ANSI_COLOR_RESET, pattern);
+                    }
+
+                    // size_t start_pos = match_sv.indices[i - 1] + pattern_len + 1;
+                    // lhs = sv_from_parts(line.data + start_pos, match_sv.indices[i] - start_pos);
                 }
-                size_t start_pos = match_sv.indices[match_sv.num_matches - 1] + pattern_len + 1;
+                size_t start_pos = match_sv.indices[match_sv.num_matches - 1] + pattern_len;
                 StringView rhs = sv_from_parts(line.data + start_pos, line.size - start_pos);
                 printf(SV_FMT"\n", SV_ARG(rhs));
             }
@@ -514,6 +556,12 @@ size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, con
     }
 
 #endif
+
+    // TODO: Cleanup
+    if (buffer_idx > 0)
+    {
+        printf(g_out_buffer);
+    }
 
     return total_matches;
 }
@@ -727,6 +775,7 @@ int main(int argc, char** argv)
     bool recurse_dirs = (flags & WGREP_OPTION_r);
     bool print_count  = (flags & WGREP_OPTION_c);
 
+
     if (pattern != NULL && !_isatty(_fileno(stdin)))
     {
         size_t buf_size = Megabytes(64);
@@ -830,13 +879,16 @@ int main(int argc, char** argv)
         QueryPerformanceCounter(&g_Stats.end);
 
         double elapsed_time = (g_Stats.end.QuadPart - g_Stats.start.QuadPart) * 1000.0 / g_Stats.frequency.QuadPart;
+        double other_time = elapsed_time - g_Stats.line_chop_time - g_Stats.search_time - g_Stats.file_read_time;
 
-        printf("Total elapsed time: %f ms.\n", elapsed_time);
-        printf("Total line chop time: %f ms.\n", g_Stats.line_chop_time);
-        printf("Total string search time: %f ms.\n", g_Stats.search_time);
-        printf("Total file read time: %f ms.\n", g_Stats.file_read_time);
         printf("Total files searched: %d\n", g_Stats.files_searched);
         printf("Total bytes searched: %zu\n", g_Stats.bytes_searched);
+        printf("\n");
+        printf("%-24s | %10.4fms | %3d%%\n", "Total elapsed time", elapsed_time, 100);
+        printf("%-24s | %10.4fms | %3d%%\n", "Total line chop time", g_Stats.line_chop_time, (int)(g_Stats.line_chop_time / elapsed_time * 100.0));
+        printf("%-24s | %10.4fms | %3d%%\n", "Total string search time", g_Stats.search_time, (int)(g_Stats.search_time / elapsed_time * 100.0));
+        printf("%-24s | %10.4fms | %3d%%\n", "Total file read time", g_Stats.file_read_time, (int)(g_Stats.file_read_time / elapsed_time * 100.0));
+        printf("%-24s | %10.4fms | %3d%%\n", "Other time", other_time, (int)(other_time / elapsed_time * 100.0));
     }
 
     return 0;
