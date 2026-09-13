@@ -28,6 +28,7 @@
 #define ANSI_COLOR_CYAN_LEN    strlen(ANSI_COLOR_CYAN)
 #define ANSI_COLOR_RESET_LEN   strlen(ANSI_COLOR_RESET)
 
+#define WGREP_NUM_FLAGS   8
 #define WGREP_OPTION_n    (1 << 0)
 #define WGREP_OPTION_o    (1 << 1)
 #define WGREP_OPTION_r    (1 << 2)
@@ -36,6 +37,26 @@
 #define WGREP_OPTION_perf (1 << 5)
 #define WGREP_OPTION_kmp  (1 << 6)
 #define WGREP_OPTION_bm   (1 << 7)
+
+typedef struct
+{
+    const char* cmd;
+    uint32_t    flag;
+    char*       desc;
+} Cmd_Line_Arg;
+
+static const Cmd_Line_Arg command_line_args[WGREP_NUM_FLAGS] =
+{
+    { "-n",     WGREP_OPTION_n,    "print line number"                               },
+    { "-o",     WGREP_OPTION_o,    "print only matching part of line"                },
+    { "-r",     WGREP_OPTION_r,    "search directory recursively"                    },
+    { "-c",     WGREP_OPTION_c,    "print only count of how many matches were found" },
+    { "-H",     WGREP_OPTION_H,    "print file names"                                },
+    { "--perf", WGREP_OPTION_perf, "print performance stats"                         },
+    { "--kmp",  WGREP_OPTION_kmp,  "use kmp searching algorithm"                     },
+    { "--bm",   WGREP_OPTION_bm,   "use boyer-moore algorithm"                       }
+};
+
 
 typedef struct
 {
@@ -50,7 +71,6 @@ typedef struct
 } Performance_Statistics;
 
 #define NUM_CHARS 256
-
 static Performance_Statistics g_Stats;
 static char*                  g_Program;
 static char*                  g_out_buffer;
@@ -60,25 +80,37 @@ static int                    g_badchar[NUM_CHARS];
 static size_t*                g_lps;
 // TODO: Cleanup
 static size_t buffer_idx = 0;
+static HANDLE StdOut;
+static char*  file_buffer = NULL;
 
-#define OUT_BUFFER_SIZE Megabytes(64)
+#define OUT_BUFFER_SIZE Kilobytes(64)
+#define FILE_BUFFER_SIZE Megabytes(64)
 
 void usage(FILE* stream, const char* program)
 {
     fprintf(stream, "Usage: %s [OPTIONS] Patterns [FILE]\n", program);
-    fprintf(stream, "       -n     print line number\n");
-    fprintf(stream, "       -o     print only matching part of line\n");
-    fprintf(stream, "       -r     search directory recursively\n");
-    fprintf(stream, "       -c     print only count of how many matches were found\n");
-    fprintf(stream, "       -H     print file names\n");
-    fprintf(stream, "       --perf print performance stats\n");
-    fprintf(stream, "       --kmp  use kmp searching algorithm. not implemented\n");
+    for (int i = 0; i < WGREP_NUM_FLAGS; i++)
+    {
+        fprintf(stream, "       %-10s %s\n", command_line_args[i].cmd, command_line_args[i].desc);
+    }
 }
 
 // TODO: figure out faster file reading
-void wgrep_read_file(const char* filepath)
+StringView wgrep_read_file(char* buffer, const char* filepath)
 {
+    uint32_t bytes_to_read = FILE_BUFFER_SIZE;
 
+    HANDLE file = CreateFileA(filepath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+
+    uint32_t bytes_read = 0;
+    ReadFile(file, buffer, bytes_to_read, &bytes_read, NULL);
+
+    CloseHandle(file);
+
+    return (StringView){
+        .data = buffer,
+        .size = bytes_read,
+    };
 }
 
 typedef struct
@@ -306,6 +338,12 @@ MatchResult sv_contains_bm(Arena* arena, StringView sv, const char* pattern)
     return result;
 }
 
+static void print_buffer()
+{
+    WriteFile(StdOut, g_out_buffer, buffer_idx, NULL, NULL);
+    buffer_idx = 0;
+}
+
 size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, const char* file, uint32_t flags)
 {
     g_Stats.files_searched++;
@@ -359,9 +397,7 @@ size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, con
             {
                 if (ANSI_COLOR_GREEN_LEN + ANSI_COLOR_RESET_LEN + strlen(file) + buffer_idx >= OUT_BUFFER_SIZE)
                 {
-                    printf(g_out_buffer);
-                    memset(g_out_buffer, 0, buffer_idx);
-                    buffer_idx = 0;
+                    print_buffer();
                 }
                 buffer_idx += (size_t)snprintf(g_out_buffer + buffer_idx, OUT_BUFFER_SIZE - buffer_idx, "%s%s:%s", ANSI_COLOR_GREEN, file, ANSI_COLOR_RESET);
             }
@@ -371,9 +407,7 @@ size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, con
                 size_t digits = (size_t)snprintf(NULL, 0, "%zu", line_number);
                 if (ANSI_COLOR_CYAN_LEN + ANSI_COLOR_RESET_LEN + digits + buffer_idx >= OUT_BUFFER_SIZE)
                 {
-                    printf(g_out_buffer);
-                    memset(g_out_buffer, 0, buffer_idx);
-                    buffer_idx = 0;
+                    print_buffer();
                 }
                 buffer_idx += (size_t)snprintf(g_out_buffer + buffer_idx, OUT_BUFFER_SIZE - buffer_idx, "%s%zu:%s", ANSI_COLOR_CYAN, line_number, ANSI_COLOR_RESET);
             }
@@ -382,9 +416,7 @@ size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, con
             {
                 if (ANSI_COLOR_RED_LEN + ANSI_COLOR_RESET_LEN + strlen(pattern) + buffer_idx >= OUT_BUFFER_SIZE)
                 {
-                    printf(g_out_buffer);
-                    memset(g_out_buffer, 0, buffer_idx);
-                    buffer_idx = 0;
+                    print_buffer();
                 }
                 buffer_idx += (size_t)snprintf(g_out_buffer + buffer_idx, OUT_BUFFER_SIZE - buffer_idx, "%s%s%s\n", ANSI_COLOR_RED, pattern, ANSI_COLOR_RESET);
             }
@@ -396,9 +428,7 @@ size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, con
 
                 if (ANSI_COLOR_RED_LEN + ANSI_COLOR_RESET_LEN + pattern_len + lhs.size + buffer_idx >= OUT_BUFFER_SIZE)
                 {
-                    printf(g_out_buffer);
-                    memset(g_out_buffer, 0, buffer_idx);
-                    buffer_idx = 0;
+                    print_buffer();
                 }
                 buffer_idx += (size_t)snprintf(g_out_buffer + buffer_idx, OUT_BUFFER_SIZE - buffer_idx, SV_FMT"%s%s%s", SV_ARG(lhs), ANSI_COLOR_RED, pattern,ANSI_COLOR_RESET);
 
@@ -410,9 +440,7 @@ size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, con
                         size_t partial_pattern_len = match_sv.indices[i] - match_sv.indices[i - 1];
                         if (ANSI_COLOR_RED_LEN + ANSI_COLOR_RESET_LEN + partial_pattern_len >= OUT_BUFFER_SIZE)
                         {
-                            printf(g_out_buffer);
-                            memset(g_out_buffer, 0, buffer_idx);
-                            buffer_idx = 0;
+                            print_buffer();
                         }
                         StringView partial_pattern = sv_from_parts(pattern + pattern_len - partial_pattern_len, partial_pattern_len);
                         buffer_idx += (size_t)snprintf(g_out_buffer + buffer_idx, OUT_BUFFER_SIZE - buffer_idx, "%s"SV_FMT"%s", ANSI_COLOR_RED, SV_ARG(partial_pattern), ANSI_COLOR_RESET);
@@ -425,9 +453,7 @@ size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, con
 
                         if (ANSI_COLOR_RED_LEN + ANSI_COLOR_RESET_LEN + pattern_len + lhs.size + buffer_idx >= OUT_BUFFER_SIZE)
                         {
-                            printf(g_out_buffer);
-                            memset(g_out_buffer, 0, buffer_idx);
-                            buffer_idx = 0;
+                            print_buffer();
                         }
                         buffer_idx += (size_t)snprintf(g_out_buffer + buffer_idx, OUT_BUFFER_SIZE - buffer_idx, SV_FMT"%s%s%s", SV_ARG(lhs), ANSI_COLOR_RED, pattern,ANSI_COLOR_RESET);
                     }
@@ -438,9 +464,7 @@ size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, con
 
                 if (rhs.size + buffer_idx >= OUT_BUFFER_SIZE)
                 {
-                    printf(g_out_buffer);
-                    memset(g_out_buffer, 0, buffer_idx);
-                    buffer_idx = 0;
+                    print_buffer();
                 }
 
                 buffer_idx += (size_t)snprintf(g_out_buffer + buffer_idx, OUT_BUFFER_SIZE - buffer_idx, SV_FMT"\n", SV_ARG(rhs));
@@ -558,10 +582,13 @@ size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, con
 #endif
 
     // TODO: Cleanup
-    if (buffer_idx > 0)
-    {
-        printf(g_out_buffer);
-    }
+    // WriteFile is faster than printf
+    // Doing a print at the end is faster than file by file...
+    // if (buffer_idx > 0)
+    // {
+    //     WriteFile(StdOut, g_out_buffer, buffer_idx, NULL, NULL);
+    //     // printf(g_out_buffer);
+    // }
 
     return total_matches;
 }
@@ -637,8 +664,11 @@ int main(int argc, char** argv)
     QueryPerformanceFrequency(&g_Stats.frequency);
     QueryPerformanceCounter(&g_Stats.start);
 
+    StdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+
     Arena* arena = arena_create((size_t)Gigabytes(4));
-    g_out_buffer = ArenaPushArray(arena, char, OUT_BUFFER_SIZE); // not sure why 4mb at a time...
+    g_out_buffer = ArenaPushArray(arena, char, OUT_BUFFER_SIZE);
+    file_buffer = ArenaPushArray(arena, char, FILE_BUFFER_SIZE);
 
     g_Program = next_cmd_line_arg(&argc, &argv);
 
@@ -670,111 +700,95 @@ int main(int argc, char** argv)
     while (argc > 0)
     {
         char* flag = next_cmd_line_arg(&argc, &argv);
-        if (strcmp(flag, "-n") == 0)
-        {
-            flags |= WGREP_OPTION_n;
-        }
-        else if (strcmp(flag, "-o") == 0)
-        {
-            flags |= WGREP_OPTION_o;
-        }
-        else if (strcmp(flag, "-r") == 0)
-        {
-            flags |= WGREP_OPTION_r;
-        }
-        else if (strcmp(flag, "-c") == 0)
-        {
-            flags |= WGREP_OPTION_c;
-        }
-        else if (strcmp(flag, "-H") == 0)
-        {
-            flags |= WGREP_OPTION_H;
-        }
-        else if (strcmp(flag, "--perf") == 0)
-        {
-            flags |= WGREP_OPTION_perf;
-        }
-        else if (strcmp(flag, "--kmp") == 0)
-        {
-            flags |= WGREP_OPTION_kmp;
-        }
-        else if (strcmp(flag, "--bm") == 0)
-        {
-            flags |= WGREP_OPTION_bm;
-        }
-        else if (flag[0] == '-')
-        {
-            size_t flag_len = strlen(flag);
-            if (flag_len <= 2)
-            {
-                fprintf(stderr, "ERROR: Unkown flag provided %s\n", flag);
-                usage(stderr, g_Program);
-                exit(1);
-            }
-            else if (flag[1] == '-')
-            {
-                fprintf(stderr, "ERROR: Unkown flag provided %s\n", flag);
-                usage(stderr, g_Program);
-                exit(1);
-            }
 
-            for (size_t i = 1; i < flag_len; i++)
+        bool flag_found = false;
+        for (int i = 0; i < WGREP_NUM_FLAGS; i++)
+        {
+            if (strcmp(command_line_args[i].cmd, flag) == 0)
             {
-                if (flag[i] == 'n')
+                flags |= command_line_args[i].flag;
+                flag_found = true;
+                break;
+            }
+        }
+
+        if (!flag_found)
+        {
+            if (flag[0] == '-')
+            {
+                size_t flag_len = strlen(flag);
+                if (flag_len <= 2)
                 {
-                    flags |= WGREP_OPTION_n;
-                }
-                else if (flag[i] == 'o')
-                {
-                    flags |= WGREP_OPTION_o;
-                }
-                else if (flag[i] == 'r')
-                {
-                    flags |= WGREP_OPTION_r;
-                }
-                else if (flag[i] == 'c')
-                {
-                    flags |= WGREP_OPTION_c;
-                }
-                else if (flag[i] == 'H')
-                {
-                    flags |= WGREP_OPTION_H;
-                }
-                else
-                {
-                    fprintf(stderr, "ERROR: Unkown flag provided -%c\n", flag[i]);
+                    fprintf(stderr, "ERROR: Unkown flag provided %s\n", flag);
                     usage(stderr, g_Program);
                     exit(1);
                 }
-            }
-        }
-        else if (pattern == NULL)
-        {
-            pattern = flag;
-            if (flags & WGREP_OPTION_bm)
-            {
-                int m = strlen(pattern);
-                g_bpos = ArenaPushArray(arena, int, m + 1);
-                g_shift = ArenaPushArray(arena, int, m + 1);
+                else if (flag[1] == '-')
+                {
+                    fprintf(stderr, "ERROR: Unkown flag provided %s\n", flag);
+                    usage(stderr, g_Program);
+                    exit(1);
+                }
 
-                bad_character_heuristic(pattern, m);
-                preprocess_strong_suffix(g_shift, g_bpos, pattern, m);
-                preprocess_case2(g_shift, g_bpos, pattern, m);
+                for (size_t i = 1; i < flag_len; i++)
+                {
+                    // TODO: these are special case for now
+                    if (flag[i] == 'n')
+                    {
+                        flags |= WGREP_OPTION_n;
+                    }
+                    else if (flag[i] == 'o')
+                    {
+                        flags |= WGREP_OPTION_o;
+                    }
+                    else if (flag[i] == 'r')
+                    {
+                        flags |= WGREP_OPTION_r;
+                    }
+                    else if (flag[i] == 'c')
+                    {
+                        flags |= WGREP_OPTION_c;
+                    }
+                    else if (flag[i] == 'H')
+                    {
+                        flags |= WGREP_OPTION_H;
+                    }
+                    else
+                    {
+                        fprintf(stderr, "ERROR: Unkown flag provided -%c\n", flag[i]);
+                        usage(stderr, g_Program);
+                        exit(1);
+                    }
+                }
             }
-            else if (flags & WGREP_OPTION_kmp)
+            else if (pattern == NULL)
             {
-                compute_lps(arena, pattern);
+                pattern = flag;
+                if (flags & WGREP_OPTION_bm)
+                {
+                    int m = strlen(pattern);
+                    g_bpos = ArenaPushArray(arena, int, m + 1);
+                    g_shift = ArenaPushArray(arena, int, m + 1);
+
+                    bad_character_heuristic(pattern, m);
+                    preprocess_strong_suffix(g_shift, g_bpos, pattern, m);
+                    preprocess_case2(g_shift, g_bpos, pattern, m);
+                }
+                else if (flags & WGREP_OPTION_kmp)
+                {
+                    compute_lps(arena, pattern);
+                }
+            }
+            else if (file == NULL)
+            {
+                file = flag;
             }
         }
-        else if (file == NULL)
-        {
-            file = flag;
-        }
+        
     }
 
     bool recurse_dirs = (flags & WGREP_OPTION_r);
     bool print_count  = (flags & WGREP_OPTION_c);
-
 
     if (pattern != NULL && !_isatty(_fileno(stdin)))
     {
@@ -811,6 +825,7 @@ int main(int argc, char** argv)
             LARGE_INTEGER t1, t2;
             QueryPerformanceCounter(&t1);
             StringView result = sv_read_entire_file(arena, file);
+            // StringView result = wgrep_read_file(file_buffer, file);
             if (result.data == NULL)
             {
                 printf("Failed to read file %s\n", file);
@@ -841,6 +856,7 @@ int main(int argc, char** argv)
                 LARGE_INTEGER t1, t2;
                 QueryPerformanceCounter(&t1);
                 StringView result = sv_read_entire_file(arena, file);
+                // StringView result = wgrep_read_file(file_buffer, file);
                 if (result.data == NULL)
                 {
                     printf("Failed to read file %s\n", file);
@@ -872,6 +888,12 @@ int main(int argc, char** argv)
                 printf("%zu\n", total_matches);
             }
         }
+    }
+
+    // TODO: Cleanup
+    if (buffer_idx > 0)
+    {
+        print_buffer();
     }
 
     if (flags & WGREP_OPTION_perf)

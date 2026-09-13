@@ -15,3 +15,29 @@ wgrep --perf --kmp -rnH "OE_CORE_ASSERT" C:\Dev\OpenEngine\OpenEngine\src
 wgrep --perf --bm -rnH "OE_CORE_ASSERT" C:\Dev\OpenEngine\OpenEngine\src
 ~10ms
 ~16ms in old CMD
+
+
+COLD START after Empty Standby List in RAMMap
+
+wgrep --perf --bm -rnH OE_CORE_ASSERT C:\Dev\OpenEngine\OpenEngine
+
+Using ReadFile() single buffer
+
+Total files searched: 5069
+Total bytes searched: 728012161
+
+Total elapsed time       |  5543.3149ms | 100%
+Total line chop time     |   267.5687ms |   4%
+Total string search time |   332.1549ms |   5%
+Total file read time     |  4691.0907ms |  84%
+Other time               |   252.5006ms |   4%
+
+Using fread() with arena_pop() after every file
+Total files searched: 5069
+Total bytes searched: 728012161
+
+Total elapsed time       |  4785.4796ms | 100%
+Total line chop time     |   266.6206ms |   5%
+Total string search time |   370.5932ms |   7%
+Total file read time     |  3902.3771ms |  81%
+Other time               |   245.8887ms |   5%
