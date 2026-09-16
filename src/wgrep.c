@@ -12,6 +12,8 @@
 #define CUTILS_NO_PREFIX
 #include "cutils.h"
 
+#define internal static
+
 #define ANSI_COLOR_RED     "\x1b[31m"
 #define ANSI_COLOR_GREEN   "\x1b[32m"
 #define ANSI_COLOR_YELLOW  "\x1b[33m"
@@ -86,7 +88,7 @@ static char*  file_buffer = NULL;
 #define OUT_BUFFER_SIZE Kilobytes(64)
 #define FILE_BUFFER_SIZE Megabytes(64)
 
-void usage(FILE* stream, const char* program)
+internal void usage(FILE* stream, const char* program)
 {
     fprintf(stream, "Usage: %s [OPTIONS] Patterns [FILE]\n", program);
     for (int i = 0; i < WGREP_NUM_FLAGS; i++)
@@ -96,7 +98,7 @@ void usage(FILE* stream, const char* program)
 }
 
 // TODO: figure out faster file reading
-StringView wgrep_read_file(char* buffer, const char* filepath)
+internal StringView wgrep_read_file(char* buffer, const char* filepath)
 {
     uint32_t bytes_to_read = FILE_BUFFER_SIZE;
 
@@ -119,7 +121,7 @@ typedef struct
     size_t* indices;
 } MatchResult;
 
-MatchResult sv_contains_brute_force(Arena* arena, StringView sv, const char* pattern)
+internal MatchResult sv_contains_brute_force(Arena* arena, StringView sv, const char* pattern)
 {
     MatchResult result = {0};
     size_t pattern_length = strlen(pattern);
@@ -154,7 +156,7 @@ MatchResult sv_contains_brute_force(Arena* arena, StringView sv, const char* pat
     return result;
 }
 
-void compute_lps(Arena* arena, const char* pattern)
+internal void compute_lps(Arena* arena, const char* pattern)
 {
     size_t pattern_length = strlen(pattern);
     size_t i = 1; // NOTE: start from 1 as first is always 0
@@ -178,24 +180,9 @@ void compute_lps(Arena* arena, const char* pattern)
         }
 
     }
-
-    // NOTE: print the computed array
-    // For Debugging only
-    // for (size_t idx = 0; idx < pattern_length; idx++)
-    // {
-    //     if (idx < strlen(pattern) - 1)
-    //     {
-    //         printf("%zu, ", g_lps[idx]);
-    //     }
-    //     else
-    //     {
-    //         printf("%zu\n", g_lps[idx]);
-    //     }
-    // }
 }
 
-// NOTE: kmp = Knuth, Morris, Pratt algorithm
-MatchResult sv_contains_kmp(Arena* arena, StringView sv, const char* pattern)
+internal MatchResult sv_contains_kmp(Arena* arena, StringView sv, const char* pattern)
 {
     MatchResult result = {0};
     size_t pattern_length = strlen(pattern);
@@ -240,7 +227,7 @@ MatchResult sv_contains_kmp(Arena* arena, StringView sv, const char* pattern)
     return result;
 }
 
-void bad_character_heuristic(const char* pattern, int pattern_len)
+internal void bad_character_heuristic(const char* pattern, int pattern_len)
 {
     int i;
 
@@ -252,7 +239,7 @@ void bad_character_heuristic(const char* pattern, int pattern_len)
     }
 }
 
-void preprocess_strong_suffix(int* shift, int* bpos, const char* pattern, int m)
+internal void preprocess_strong_suffix(int* shift, int* bpos, const char* pattern, int m)
 {
     int i = m, j = m + 1;
 
@@ -277,7 +264,7 @@ void preprocess_strong_suffix(int* shift, int* bpos, const char* pattern, int m)
     }
 }
 
-void preprocess_case2(int* shift, int* bpos, const char* pattern, int m)
+internal void preprocess_case2(int* shift, int* bpos, const char* pattern, int m)
 {
     int i, j;
     j = bpos[0];
@@ -296,7 +283,7 @@ void preprocess_case2(int* shift, int* bpos, const char* pattern, int m)
     }
 }
 
-MatchResult sv_contains_bm(Arena* arena, StringView sv, const char* pattern)
+internal MatchResult sv_contains_bm(Arena* arena, StringView sv, const char* pattern)
 {
     MatchResult result = {0};
 
@@ -338,13 +325,13 @@ MatchResult sv_contains_bm(Arena* arena, StringView sv, const char* pattern)
     return result;
 }
 
-static void print_buffer()
+internal void print_buffer()
 {
     WriteFile(StdOut, g_out_buffer, buffer_idx, NULL, NULL);
     buffer_idx = 0;
 }
 
-size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, const char* file, uint32_t flags)
+internal size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, const char* file, uint32_t flags)
 {
     g_Stats.files_searched++;
     g_Stats.bytes_searched += sv.size;
@@ -593,7 +580,7 @@ size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringView sv, con
     return total_matches;
 }
 
-size_t recurse_directory(Arena* arena, const char* dir, const char* pattern, uint32_t flags)
+internal size_t recurse_directory(Arena* arena, const char* dir, const char* pattern, uint32_t flags)
 {
     WIN32_FIND_DATA ffd = {0};
     LARGE_INTEGER filesize;
@@ -732,28 +719,21 @@ int main(int argc, char** argv)
 
                 for (size_t i = 1; i < flag_len; i++)
                 {
-                    // TODO: these are special case for now
-                    if (flag[i] == 'n')
+                    flag_found = false;
+                    for (int j = 0; j < WGREP_NUM_FLAGS; j++)
                     {
-                        flags |= WGREP_OPTION_n;
+                        if (strlen(command_line_args[j].cmd) == 2)
+                        {
+                            if (command_line_args[j].cmd[1] == flag[i])
+                            {
+                                flags |= command_line_args[j].flag;
+                                flag_found = true;
+                                break;
+                            }
+                        }
                     }
-                    else if (flag[i] == 'o')
-                    {
-                        flags |= WGREP_OPTION_o;
-                    }
-                    else if (flag[i] == 'r')
-                    {
-                        flags |= WGREP_OPTION_r;
-                    }
-                    else if (flag[i] == 'c')
-                    {
-                        flags |= WGREP_OPTION_c;
-                    }
-                    else if (flag[i] == 'H')
-                    {
-                        flags |= WGREP_OPTION_H;
-                    }
-                    else
+
+                    if (!flag_found)
                     {
                         fprintf(stderr, "ERROR: Unkown flag provided -%c\n", flag[i]);
                         usage(stderr, g_Program);
@@ -784,7 +764,6 @@ int main(int argc, char** argv)
                 file = flag;
             }
         }
-        
     }
 
     bool recurse_dirs = (flags & WGREP_OPTION_r);
@@ -794,15 +773,13 @@ int main(int argc, char** argv)
     {
         size_t buf_size = Megabytes(64);
         size_t total_matches = 0;
-        char* buf = NULL;
+        char* buf = ArenaPushArray(arena, char, buf_size);
         char* result = NULL;
+        // TODO: cleanup
         do
         {
-            buf = ArenaPushArray(arena, char, buf_size);
             result = fgets(buf, buf_size, stdin);
-            size_t buffer_size = Megabytes(4);
             total_matches += match_pattern_in_sv(arena, pattern, sv_from_cstr(buf), NULL, flags);
-            ArenaPopArray(arena, char, buf_size);
         } while (result != NULL);
 
         if (print_count)

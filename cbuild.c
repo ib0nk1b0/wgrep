@@ -5,7 +5,7 @@
 
 
 static char* CompilerFlagsDebug   = "/Od /Zi /MT /nologo";
-static char* CompilerFlagsRelease = "/O1 /O2 /MT /nologo";
+static char* CompilerFlagsRelease = "/O2 /MT /nologo";
 // /nologo /O2 /Zi
 
 int main(int argc, char** argv)
