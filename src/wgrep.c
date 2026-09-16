@@ -30,15 +30,16 @@
 #define ANSI_COLOR_CYAN_LEN    strlen(ANSI_COLOR_CYAN)
 #define ANSI_COLOR_RESET_LEN   strlen(ANSI_COLOR_RESET)
 
-#define WGREP_NUM_FLAGS   8
-#define WGREP_OPTION_n    (1 << 0)
-#define WGREP_OPTION_o    (1 << 1)
-#define WGREP_OPTION_r    (1 << 2)
-#define WGREP_OPTION_c    (1 << 3)
-#define WGREP_OPTION_H    (1 << 4)
-#define WGREP_OPTION_perf (1 << 5)
-#define WGREP_OPTION_kmp  (1 << 6)
-#define WGREP_OPTION_bm   (1 << 7)
+#define WGREP_NUM_FLAGS    9
+#define WGREP_OPTION_n     (1 << 0)
+#define WGREP_OPTION_o     (1 << 1)
+#define WGREP_OPTION_r     (1 << 2)
+#define WGREP_OPTION_c     (1 << 3)
+#define WGREP_OPTION_H     (1 << 4)
+#define WGREP_OPTION_perf  (1 << 5)
+#define WGREP_OPTION_kmp   (1 << 6)
+#define WGREP_OPTION_bm    (1 << 7)
+#define WGREP_OPTION_multi (1 << 8)
 
 typedef struct
 {
@@ -49,16 +50,16 @@ typedef struct
 
 static const Cmd_Line_Arg command_line_args[WGREP_NUM_FLAGS] =
 {
-    { "-n",     WGREP_OPTION_n,    "print line number"                               },
-    { "-o",     WGREP_OPTION_o,    "print only matching part of line"                },
-    { "-r",     WGREP_OPTION_r,    "search directory recursively"                    },
-    { "-c",     WGREP_OPTION_c,    "print only count of how many matches were found" },
-    { "-H",     WGREP_OPTION_H,    "print file names"                                },
-    { "--perf", WGREP_OPTION_perf, "print performance stats"                         },
-    { "--kmp",  WGREP_OPTION_kmp,  "use kmp searching algorithm"                     },
-    { "--bm",   WGREP_OPTION_bm,   "use boyer-moore algorithm"                       }
+    { "-n",      WGREP_OPTION_n,     "print line number"                               },
+    { "-o",      WGREP_OPTION_o,     "print only matching part of line"                },
+    { "-r",      WGREP_OPTION_r,     "search directory recursively"                    },
+    { "-c",      WGREP_OPTION_c,     "print only count of how many matches were found" },
+    { "-H",      WGREP_OPTION_H,     "print file names"                                },
+    { "--perf",  WGREP_OPTION_perf,  "print performance stats"                         },
+    { "--kmp",   WGREP_OPTION_kmp,   "use kmp searching algorithm"                     },
+    { "--bm",    WGREP_OPTION_bm,    "use boyer-moore algorithm"                       },
+    { "--multi", WGREP_OPTION_multi, "use multi-threading"                             }
 };
-
 
 typedef struct
 {
@@ -293,9 +294,6 @@ internal MatchResult sv_contains_bm(Arena* arena, StringView sv, const char* pat
     int m = strlen(pattern);
     int n = (int)sv.size; // TODO: do I want to use ints here?
 
-    // int badchar[NUM_CHARS];
-    // bad_character_heuristic(pattern, m, badchar);
-
     while (s <= n - m)
     {
         j = m - 1;
@@ -337,8 +335,6 @@ internal size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringVie
     g_Stats.bytes_searched += sv.size;
 
     // TODO: figure out faster printing
-    // The quick hack of batching stuff in a buffer speeds up when theres a lot of printing to be done but slows down when hardly any???
-#if 1
     size_t total_matches = 0;
     size_t line_number = 0;
     while (sv.size > 0)
@@ -459,124 +455,6 @@ internal size_t match_pattern_in_sv(Arena* arena, const char* pattern, StringVie
         }
     }
 
-#else
-    size_t total_matches = 0;
-    size_t line_number = 0;
-    while (sv.size > 0)
-    {
-        LARGE_INTEGER line_chop_start, line_chop_end;
-        QueryPerformanceCounter(&line_chop_start);
-        
-        line_number += 1;
-        StringView line = sv_chop_line(&sv);
-
-        QueryPerformanceCounter(&line_chop_end);
-        g_Stats.line_chop_time += (line_chop_end.QuadPart - line_chop_start.QuadPart) * 1000.0 / g_Stats.frequency.QuadPart;
-
-        if (line.size == 0) continue;
-
-        LARGE_INTEGER search_start, search_end;
-        QueryPerformanceCounter(&search_start);
-
-        size_t index = 0;
-        MatchResult match_sv;
-
-        if (flags & WGREP_OPTION_kmp)
-        {
-            match_sv = sv_contains_kmp(arena, line, pattern);
-        }
-        else if (flags & WGREP_OPTION_bm)
-        {
-            match_sv = sv_contains_bm(arena, line, pattern);
-        }
-        else
-        {
-            match_sv = sv_contains_brute_force(arena, line, pattern);
-        }
-
-        QueryPerformanceCounter(&search_end);
-        g_Stats.search_time += (search_end.QuadPart - search_start.QuadPart) * 1000.0 / g_Stats.frequency.QuadPart;
-
-        if (flags & WGREP_OPTION_kmp)
-        {
-            match_sv = sv_contains_kmp(arena, line, pattern);
-        }
-        else if (flags & WGREP_OPTION_bm)
-        {
-            match_sv = sv_contains_bm(arena, line, pattern);
-        }
-        else
-        {
-            match_sv = sv_contains_brute_force(arena, line, pattern);
-        }
-
-        if (match_sv.num_matches)
-        {
-            total_matches += match_sv.num_matches;
-            if (flags & WGREP_OPTION_c)
-            {
-                continue;
-            }
-            if (flags & WGREP_OPTION_H && file != NULL)
-            {
-                printf(ANSI_COLOR_GREEN"%s:"ANSI_COLOR_RESET, file);
-            }
-
-            if (flags & WGREP_OPTION_n)
-            {
-                printf(ANSI_COLOR_CYAN"%zu:"ANSI_COLOR_RESET, line_number);
-            }
-
-            if (flags & WGREP_OPTION_o)
-            {
-                printf(ANSI_COLOR_RED"%s"ANSI_COLOR_RESET"\n", pattern);
-            }
-            else
-            {
-                size_t pattern_len = strlen(pattern);
-                StringView lhs = sv_from_parts(line.data, match_sv.indices[0]);
-                printf(SV_FMT, SV_ARG(lhs));
-                printf(ANSI_COLOR_RED "%s"ANSI_COLOR_RESET, pattern);
-                for (size_t i = 1; i < match_sv.num_matches; i++)
-                {
-                    if (match_sv.indices[i] - match_sv.indices[i - 1] < pattern_len)
-                    {
-                        // Need to print extra partial pattern
-                        size_t partial_pattern_len = match_sv.indices[i] - match_sv.indices[i - 1];
-                        StringView partial_pattern = sv_from_parts(pattern + pattern_len - partial_pattern_len, partial_pattern_len);
-                        printf("%s"SV_FMT"%s", ANSI_COLOR_RED, SV_ARG(partial_pattern), ANSI_COLOR_RESET);
-                    }
-                    else
-                    {
-                        size_t start_pos = match_sv.indices[i - 1] + pattern_len;
-
-                        lhs = sv_from_parts(line.data + start_pos, match_sv.indices[i] - start_pos);
-
-                        printf(SV_FMT, SV_ARG(lhs));
-                        printf(ANSI_COLOR_RED "%s"ANSI_COLOR_RESET, pattern);
-                    }
-
-                    // size_t start_pos = match_sv.indices[i - 1] + pattern_len + 1;
-                    // lhs = sv_from_parts(line.data + start_pos, match_sv.indices[i] - start_pos);
-                }
-                size_t start_pos = match_sv.indices[match_sv.num_matches - 1] + pattern_len;
-                StringView rhs = sv_from_parts(line.data + start_pos, line.size - start_pos);
-                printf(SV_FMT"\n", SV_ARG(rhs));
-            }
-        }
-    }
-
-#endif
-
-    // TODO: Cleanup
-    // WriteFile is faster than printf
-    // Doing a print at the end is faster than file by file...
-    // if (buffer_idx > 0)
-    // {
-    //     WriteFile(StdOut, g_out_buffer, buffer_idx, NULL, NULL);
-    //     // printf(g_out_buffer);
-    // }
-
     return total_matches;
 }
 
@@ -642,6 +520,29 @@ internal size_t recurse_directory(Arena* arena, const char* dir, const char* pat
     }
     while (FindNextFile(hFind, &ffd) != 0);
 
+    return total_matches;
+}
+
+internal size_t process_file(Arena* arena, char* file, const char* pattern, uint32_t flags)
+{
+    size_t arena_start = arena->pos;
+    LARGE_INTEGER t1, t2;
+    QueryPerformanceCounter(&t1);
+
+    StringView result = sv_read_entire_file(arena, file);
+    if (result.data == NULL)
+    {
+        printf("Failed to read file %s\n", file);
+        return 0;
+    }
+
+    QueryPerformanceCounter(&t2);
+    g_Stats.file_read_time += (t2.QuadPart - t1.QuadPart) * 1000.0 / g_Stats.frequency.QuadPart;
+
+    size_t total_matches = match_pattern_in_sv(arena, pattern, result, file, flags);
+
+    arena_pop(arena, arena->pos - arena_start);
+    
     return total_matches;
 }
 
@@ -767,25 +668,20 @@ int main(int argc, char** argv)
     }
 
     bool recurse_dirs = (flags & WGREP_OPTION_r);
+    bool multi_threading = (flags & WGREP_OPTION_multi);
     bool print_count  = (flags & WGREP_OPTION_c);
+
+    size_t total_matches = 0;
 
     if (pattern != NULL && !_isatty(_fileno(stdin)))
     {
-        size_t buf_size = Megabytes(64);
-        size_t total_matches = 0;
-        char* buf = ArenaPushArray(arena, char, buf_size);
         char* result = NULL;
         // TODO: cleanup
         do
         {
-            result = fgets(buf, buf_size, stdin);
-            total_matches += match_pattern_in_sv(arena, pattern, sv_from_cstr(buf), NULL, flags);
+            result = fgets(file_buffer, FILE_BUFFER_SIZE, stdin);
+            total_matches += match_pattern_in_sv(arena, pattern, sv_from_cstr(file_buffer), NULL, flags);
         } while (result != NULL);
-
-        if (print_count)
-        {
-            printf("%zu\n", total_matches);
-        }
     }
     else
     {
@@ -798,73 +694,28 @@ int main(int argc, char** argv)
 
         if (!recurse_dirs)
         {
-            size_t arena_start = arena->pos;
-            LARGE_INTEGER t1, t2;
-            QueryPerformanceCounter(&t1);
-            StringView result = sv_read_entire_file(arena, file);
-            // StringView result = wgrep_read_file(file_buffer, file);
-            if (result.data == NULL)
-            {
-                printf("Failed to read file %s\n", file);
-                return 0;
-            }
-            QueryPerformanceCounter(&t2);
-            g_Stats.file_read_time += (t2.QuadPart - t1.QuadPart) * 1000.0 / g_Stats.frequency.QuadPart;
-
-            size_t total_matches = match_pattern_in_sv(arena, pattern, result, file, flags);
-
-            if (print_count)
-            {
-                printf("%zu\n", total_matches);
-            }
-
-            arena_pop(arena, arena->pos - arena_start);
+            total_matches = process_file(arena, file, pattern, flags);
         }
         else if (recurse_dirs && file != NULL)
         {
-            size_t total_matches = 0;
             if (PathIsDirectoryA(file))
             {
                 total_matches = recurse_directory(arena, file, pattern, flags);
             }
             else
             {
-                size_t arena_start = arena->pos;
-                LARGE_INTEGER t1, t2;
-                QueryPerformanceCounter(&t1);
-                StringView result = sv_read_entire_file(arena, file);
-                // StringView result = wgrep_read_file(file_buffer, file);
-                if (result.data == NULL)
-                {
-                    printf("Failed to read file %s\n", file);
-                    return 0;
-                }
-                QueryPerformanceCounter(&t2);
-                g_Stats.file_read_time += (t2.QuadPart - t1.QuadPart) * 1000.0 / g_Stats.frequency.QuadPart;
-
-                total_matches = match_pattern_in_sv(arena, pattern, result, file, flags);
-
-                arena_pop(arena, arena->pos - arena_start);
-            }
-
-            if (print_count)
-            {
-                printf("%zu\n", total_matches);
+                total_matches = process_file(arena, file, pattern, flags);
             }
         }
-        else
+        else if (file == NULL)
         {
-            size_t total_matches = 0;
-            if (file == NULL)
-            {
-                total_matches = recurse_directory(arena, ".", pattern, flags);
-            }
-
-            if (print_count)
-            {
-                printf("%zu\n", total_matches);
-            }
+            total_matches = recurse_directory(arena, ".", pattern, flags);
         }
+    }
+
+    if (print_count)
+    {
+        printf("%zu\n", total_matches);
     }
 
     // TODO: Cleanup

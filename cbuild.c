@@ -3,6 +3,7 @@
 #define CBUILD_IMPLEMENTATION
 #include "./cbuild.h"
 
+#define NUM_TESTS 9
 
 static char* CompilerFlagsDebug   = "/Od /Zi /MT /nologo";
 static char* CompilerFlagsRelease = "/O2 /MT /nologo";
@@ -39,15 +40,34 @@ int main(int argc, char** argv)
     // printf("%s\n\n", runCommandKMP);
     // system(runCommandKMP);
 
-    printf("\n-----------------------------------------\n\n");
-    const char* runCommandBruteForce = "build\\wgrep --perf -nH \"AABA\" test\\bmtest.txt";
-    printf("%s\n\n", runCommandBruteForce);
-    system(runCommandBruteForce);
+    // printf("\n-----------------------------------------\n\n");
+    // const char* runCommandBruteForce = "build\\wgrep --perf -nH \"AABA\" test\\bmtest.txt";
+    // printf("%s\n\n", runCommandBruteForce);
+    // system(runCommandBruteForce);
+    //
+    // printf("\n-----------------------------------------\n\n");
+    // const char* runCommandBoyerMoore = "build\\wgrep --perf --bm -nH \"AABA\" test\\bmtest.txt";
+    // printf("%s\n\n", runCommandBoyerMoore);
+    // system(runCommandBoyerMoore);
 
+    // NOTE: Testing
     printf("\n-----------------------------------------\n\n");
-    const char* runCommandBoyerMoore = "build\\wgrep --perf --bm -nH \"AABA\" test\\bmtest.txt";
-    printf("%s\n\n", runCommandBoyerMoore);
-    system(runCommandBoyerMoore);
+    const char* tests[NUM_TESTS] = {
+        "build\\wgrep -nH \"AABA\" test\\bmtest.txt",
+        "build\\wgrep --bm -nH \"AABA\" test\\bmtest.txt",
+        "build\\wgrep --bm -rnH \"AABA\" test",
+        "build\\wgrep --bm -rnH \"hello, world\" test",
+        "build\\wgrep -rc \"hello, world\" test",
+        "build\\wgrep -c \"hello, world\" test\\test.txt",
+        "build\\wgrep -rc \"AABA\" test",
+        "build\\wgrep --kmp -rc \"AABA\" test",
+        "dir | build\\wgrep \"build\"",
+    };
+    for (int i = 0; i < NUM_TESTS; i++)
+    {
+        printf("\n%s\n", tests[i]);
+        system(tests[i]);
+    }
 
     return 0;
 }
