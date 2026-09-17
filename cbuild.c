@@ -3,7 +3,7 @@
 #define CBUILD_IMPLEMENTATION
 #include "./cbuild.h"
 
-#define NUM_TESTS 9
+#define NUM_TESTS 11
 
 static char* CompilerFlagsDebug   = "/Od /Zi /MT /nologo";
 static char* CompilerFlagsRelease = "/O2 /MT /nologo";
@@ -51,17 +51,19 @@ int main(int argc, char** argv)
     // system(runCommandBoyerMoore);
 
     // NOTE: Testing
-    printf("\n-----------------------------------------\n\n");
+    printf("\n-----------------------------------------\n");
     const char* tests[NUM_TESTS] = {
-        "build\\wgrep -nH \"AABA\" test\\bmtest.txt",
-        "build\\wgrep --bm -nH \"AABA\" test\\bmtest.txt",
-        "build\\wgrep --bm -rnH \"AABA\" test",
-        "build\\wgrep --bm -rnH \"hello, world\" test",
-        "build\\wgrep -rc \"hello, world\" test",
-        "build\\wgrep -c \"hello, world\" test\\test.txt",
-        "build\\wgrep -rc \"AABA\" test",
-        "build\\wgrep --kmp -rc \"AABA\" test",
+        "wgrep -nH \"AABA\" test\\bmtest.txt",
+        "wgrep --bm -nH \"AABA\" test\\bmtest.txt",
+        "wgrep --bm -rnH \"AABA\" test",
+        "wgrep --bm -rnH \"hello, world\" test",
+        "wgrep -rc \"hello, world\" test",
+        "wgrep -c \"hello, world\" test\\test.txt",
+        "wgrep -rc \"AABA\" test",
+        "wgrep --kmp -rc \"AABA\" test",
         "dir | build\\wgrep \"build\"",
+        "wgrep -rc printf src",
+        "wgrep --multi -rc printf src",
     };
     for (int i = 0; i < NUM_TESTS; i++)
     {
